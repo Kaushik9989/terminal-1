@@ -26,8 +26,7 @@ const PORT = 8000;
 const ejsMate = require("ejs-mate");
 const flash = require("connect-flash");
 const expressLayouts = require("express-ejs-layouts");
-const MONGO_URI =
-  "mongodb+srv://vivekkaushik2005:0OShH2EJiRwMSt4m@cluster0.vaqwvzd.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
+
 const QRCode = require("qrcode");
 require("dotenv").config();
 const compression = require("compression");
