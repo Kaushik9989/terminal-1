@@ -1,5 +1,5 @@
 //size 800 × 1280 portrait
-const fetch = require('node-fetch'); // npm i node-fetch@2
+ // npm i node-fetch@2
 const os = require('os');
 const express = require("express");
 const mongoose = require("mongoose");
