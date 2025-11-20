@@ -109,7 +109,7 @@ function checkInternet(cb) {
 // --- Step 2: Connect Mongo ---
 async function connectMongo() {
   try {
-    await mongoose.connect(MONGO_URI, {
+    await mongoose.connect(process.env.MONGO_URI, {
       serverSelectionTimeoutMS: 10000, // wait max 5s
     });
     console.log("✅ MongoDB connected");
