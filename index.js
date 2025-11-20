@@ -16,6 +16,7 @@ const MongoStore = require("connect-mongo");
 const bodyParser = require("body-parser");
 const path = require("path");
 const { v4: uuidv4 } = require("uuid");
+const Terminal = require("./models/terminal.js");   
 const Locker = require("./models/locker.js");
 const Parcel2 = require("./models/parcel2Updated.js");
 const cron = require("node-cron");
@@ -26,7 +27,7 @@ const PORT = 8000;
 const ejsMate = require("ejs-mate");
 const flash = require("connect-flash");
 const expressLayouts = require("express-ejs-layouts");
-
+const TERMINAL_ID = "terminal-001";
 const QRCode = require("qrcode");
 require("dotenv").config();
 const compression = require("compression");
@@ -1804,6 +1805,186 @@ cron.schedule("*/2 * * * * *", async () => {
     console.error("[CRON] Error:", err);
   }
 });
+
+
+
+
+//// HEARTBEAT
+
+
+
+
+// cron.schedule('*/3 * * * * *', async () => {
+//   const now = new Date();
+
+//   try {
+//     await Terminal.findOneAndUpdate(
+//       { terminalId: process.env.TERMINAL_ID },
+//       {
+//         $set: {
+//           lastSeen: now,
+//           'status.online': true,
+//           'status.updatedBy': 'server-cron',
+//           'status.localTime': now
+//         }
+//       },
+//       { upsert: true }
+//     );
+
+//     // console.log(`[CRON] heartbeat updated for ${TERMINAL_ID}`);
+//   } catch (err) {
+//     console.error('[CRON] DB update failed:', err);
+//   }
+// });
+
+
+
+// server/terminal-cron.js
+const si = require('systeminformation');
+
+
+const SCHEDULE = process.env.CRONTAB || '*/3 * * * * *'; // every 10s
+const HISTORY_LIMIT = Number(process.env.HISTORY_LIMIT || 100);
+
+async function collectHealth() {
+  const out = {};
+  // wrap each call in try/catch — some fields may not be available on all devices
+  try {
+    const bat = await si.battery();
+    if (bat) out.battery = {
+      percent: typeof bat.percent === 'number' ? Math.round(bat.percent) : undefined,
+      charging: bat.ischarging,
+      temp: bat.temperature,
+      cycleCount: bat.cyclecount
+    };
+  } catch (e) { /* ignore */ }
+
+  try {
+    const cpuLoad = await si.currentLoad();
+    out.cpu = {
+      loadPercent: cpuLoad && cpuLoad.currentload ? Number(cpuLoad.currentload.toFixed(2)) : undefined,
+      avgLoad: cpuLoad && cpuLoad.avgload ? cpuLoad.avgload : undefined,
+      cores: cpuLoad && cpuLoad.cpus ? cpuLoad.cpus.length : undefined
+    };
+  } catch (e) {}
+
+  try {
+    const cpuTemp = await si.cpuTemperature();
+    if (!out.cpu) out.cpu = {};
+    out.cpu.temp = cpuTemp && cpuTemp.main ? cpuTemp.main : undefined;
+  } catch (e) {}
+
+  try {
+    const mem = await si.mem();
+    out.memory = {
+      totalBytes: mem.total,
+      freeBytes: mem.available,
+      usedBytes: mem.total - mem.available
+    };
+  } catch (e) {}
+
+  try {
+    const disks = await si.fsSize();
+    out.disk = (disks || []).map(d => ({
+      fs: d.fs,
+      mount: d.mount,
+      size: d.size,
+      used: d.used,
+      usePercent: d.use ? d.use : (d.size ? Math.round((d.used/d.size)*100) : undefined)
+    }));
+  } catch (e) {}
+
+  try {
+    const wifiConns = await si.wifiConnections(); // current connection (if supported)
+    if (wifiConns && wifiConns.length) {
+      const w = wifiConns[0];
+      out.wifi = { ssid: w.ssid, bssid: w.bssid, signalLevel: w.signalLevel || w.signal, linkSpeed: w.txRate || undefined };
+    }
+  } catch (e) {}
+
+  try {
+    out.networkInterfaces = (await si.networkInterfaces()) || [];
+  } catch (e) {}
+
+  try {
+    const t = await si.time();
+    out.uptimeSeconds = t.uptime;
+  } catch (e) {}
+
+  try {
+    const procs = await si.processes();
+    out.processesCount = procs ? procs.all : undefined;
+  } catch (e) {}
+
+  // screenOn is device-specific; we try to infer or leave undefined
+  try {
+    // systeminformation doesn't expose screen state; if you have a native hook set window state in extra
+    out.screenOn = undefined;
+  } catch (e) {}
+
+  // Any device-specific extras (you can populate this via other native hooks)
+  out.extra = out.extra || {};
+
+  return out;
+}
+
+function safeNumber(n) {
+  return typeof n === 'number' ? n : undefined;
+}
+
+cron.schedule(SCHEDULE, async () => {
+  const now = new Date();
+  try {
+    const health = await collectHealth();
+
+    // Build update doc
+    const update = {
+      $set: {
+        lastSeen: now,
+        'status.localTime': now,
+        'status.updatedBy': 'terminal-cron',
+        'status.online': true,
+        'status.health': health
+      },
+      // Push to history and cap size
+      $push: {
+        history: {
+          $each: [{ ts: now, health }],
+          $slice: -HISTORY_LIMIT
+        }
+      }
+    };
+
+    const doc = await Terminal.findOneAndUpdate(
+      { terminalId: TERMINAL_ID },
+      update,
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+
+    // emit to dashboard if broadcaster exists (non-blocking)
+
+
+    // uncomment if you want local debugging
+    // console.log(`[terminal-cron] updated ${TERMINAL_ID} @ ${now.toISOString()}`);
+  } catch (err) {
+    console.error('[terminal-cron] error collecting/updating health', err);
+  }
+}, { scheduled: true });
+
+console.log(`[terminal-cron] started for ${TERMINAL_ID} schedule=${SCHEDULE}`);
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
